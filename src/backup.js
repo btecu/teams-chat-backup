@@ -64,25 +64,40 @@ class Backup {
     let page = 0;
 
     while (true) {
-      const pageNum = `0000${page++}`.slice(-5);
+      const pageNum = `${page++}`.padStart(5, 0);
 
-      console.log(`retrieve page ${pageNum}`);
-      const res = await this.instance.get(url);
+      try {
+        console.log(`Retrieving page ${pageNum}`);
+        const res = await this.instance.get(url);
 
-      if (res.data.value && res.data.value.length) {
-        await fsAPI.writeFile(
-          path.resolve(this.target, `messages-${pageNum}.json`),
-          JSON.stringify(res.data.value, null, '  '),
-          'utf8');
-      }
+        if (res.data.value && res.data.value.length) {
+          await fsAPI.writeFile(
+            path.resolve(this.target, `messages-${pageNum}.json`),
+            JSON.stringify(res.data.value, null, '  '),
+            'utf8');
+          }
 
-      // if there's a next page (earlier messages) ...
-      if (res.data['@odata.count'] && res.data['@odata.nextLink']) {
-        // .. get these in the next round
-        url = res.data['@odata.nextLink'];
-      } else {
-        // otherwise we're done
-        break;
+        // if there's a next page (earlier messages) ...
+        if (res.data['@odata.count'] === 20 && res.data['@odata.nextLink']) {
+          // .. get these in the next round
+          url = res.data['@odata.nextLink'];
+        } else {
+          // otherwise we're done
+          console.log(`Done with ${this.target}\n`);
+          break;
+        }
+      } catch (err) {
+        if (err.response.status === 401) {
+          console.log('Hit 401, please refresh the token');
+          break;
+        } else if (err.response.status === 429) {
+          console.log('Hit 429, waiting ten seconds...');
+          await new Promise(res => setTimeout(res, 10000));
+          page--;
+        } else {
+          console.log('Died because of unhandled response', err);
+          break;
+        }
       }
     }
   }
@@ -112,17 +127,32 @@ class Backup {
             for (const imageUrl of imageUrls) {
               if (!index[imageUrl]) {
                 const targetFilename = 'image-' + `0000${imageIdx++}`.slice(-5);
-
-                console.log('downloading', targetFilename);
-
-                const res = await this.instance({
-                  method: 'get',
-                  url: imageUrl,
-                  responseType: 'stream'
-                });
-
-                res.data.pipe(fs.createWriteStream(path.resolve(this.target, targetFilename)));
-                await pipeDone(res.data);
+                const imagePath = path.resolve(this.target, targetFilename);
+                
+                if (fs.existsSync(imagePath)) {
+                  console.log(`Image ${targetFilename} already exists`);
+                } else {
+                  console.log('Downloading', targetFilename);
+  
+                  try {
+                    const res = await this.instance({
+                      method: 'get',
+                      url: imageUrl,
+                      responseType: 'stream'
+                    });
+    
+                    res.data.pipe(fs.createWriteStream(imagePath));
+                    await pipeDone(res.data);
+                    await new Promise(res => setTimeout(res, 1000));
+                  } catch (err) {
+                    if (err.response.status === 403) {
+                      console.log('Hit 403, document not available anymore?');
+                    } else {
+                      console.log('Died because of unhandled response', err);
+                      break;
+                    }
+                  }
+                }
 
                 index[imageUrl] = targetFilename;
               }

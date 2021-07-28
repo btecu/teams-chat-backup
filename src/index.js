@@ -16,18 +16,24 @@ function ask (question) {
   });
 }
 
+const Conversations = [
+  { chatId: 'ID_FROM_URL', target: 'CONVERSATION_NAME' },
+  { chatId: 'OTHER_ID_FROM_URL', target: 'OTHER_NAME' },
+];
+
 async function main () {
-  const chatId = await ask('Enter chat ID:');
   const authToken = await ask('Enter JWT:');
-  const target = await ask('Enter target directory name:');
 
-  const backup = new Backup({
-    chatId,
-    authToken,
-    target: `out/${target}`
-  });
+  for (let conversation of Conversations) {
+    console.log(`Fetching ${conversation.target}`);
+    let backup = new Backup({
+      chatId: conversation.chatId,
+      authToken,
+      target: `out/${conversation.target}`
+    });
 
-  return backup.run();
+    await backup.run();
+  }
 }
 
 main()
